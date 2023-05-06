@@ -11,3 +11,4 @@ if module_path not in sys.path:
 
 add(2, 3)
 mul(3, 4)
+add(3, 6)
