@@ -1,7 +1,9 @@
-test_pkg/
+##################### SUB PACKAGES FROM ANOTHER REPO #####################
 dio_ai/
 ComMU/
+test_pkg/
 
+############################### DATASETS #################################
 _datasets/
 
 .idea/
