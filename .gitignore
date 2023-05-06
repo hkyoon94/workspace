@@ -1,5 +1,8 @@
-test_pkg
+test_pkg/
 dio_ai/
+ComMU/
+
+_datasets/
 
 .idea/
 # Byte-compiled / optimized / DLL files
