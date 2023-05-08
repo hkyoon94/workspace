@@ -5,6 +5,7 @@ test_pkg/
 
 ############################### DATASETS #################################
 _datasets/
+_model_checkpoints/
 
 .idea/
 # Byte-compiled / optimized / DLL files
