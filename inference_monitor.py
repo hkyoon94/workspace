@@ -27,6 +27,7 @@ from dioai.preprocessor.offset import (
 )
 from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
 from dioai.preprocessor.decoder.decoder import decode_midi
+from dioai.preprocessor.decoder.container import Note, Chord
 
 from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
 from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
@@ -231,16 +232,18 @@ class LogitProbs:
         plt.close()
     
 
-class TokenMonitor:
-    def __init__(self, context:Context, prob:LogitProbs, token):
+class Token:
+    def __init__(self, token, context:Context=None, prob:LogitProbs=None):
+        self.selected_token = token
         self.context = context
         self.prob = prob
-        self.selected_token = token
 
     def interpret(self):
         pass
 
-
+class Note:
+    def __init__(self, token_group:list):
+        pass
 
 
 
@@ -278,7 +281,6 @@ class NoteDetector(SequentialDetector):
         SequenceWord.PITCH.value.vocab_range,
         SequenceWord.NOTE_DURATION.value.vocab_range
     ]
-
     def __init__(self):
         super().__init__()
 
@@ -289,73 +291,105 @@ class ChordDetector(SequentialDetector):
         ChordWord.CHORD.value.vocab_range,
         ChordWord.CHORD_DURATION.value.vocab_range
     ]
-
     def __init__(self):
         super().__init__()
 
 
+class Note:
+    POSITION = SequenceWord.NOTE_POSITION.value
+    VELOCITY = SequenceWord.VELOCITY.value
+    PITCH = SequenceWord.PITCH.value
+    DURATION = SequenceWord.NOTE_DURATION.value
+
+    def __init__(self, meta_info, token_group):
+        self.position = token_group[0] - self.POSITION.offset
+        self.velocity = token_group[1] - self.VELOCITY.offset
+        self.pitch = token_group[2] - self.PITCH.offset
+        self.duration = token_group[3] - self.DURATION.offset
+
+    def pitch_array():
+        pass
+
+
+
 
 class SequenceMonitor:
-    BAR_TOKEN = SequenceWord.BAR.value.offset
     EOS_TOKEN = SpecialToken.EOS.value.offset
+    BAR_TOKEN = SequenceWord.BAR.value.offset
+    NOTE_VOCAB_RANGE = range(SequenceWord.PITCH.value.offset,
+                             SequenceWord.NOTE_POSITION.value.last)
     CHORD_VOCAB_RANGE = range(ChordWord.CHORD_POSITION.value.offset, 
                               ChordWord.CHORD_DURATION.value.last)
 
     def __init__( 
             self, 
             meta_info:MetaInfo, 
-            chord_info, 
-            contexts, 
-            probs, 
-            sequence:np.ndarray
+            chord_info,
+            sequence:np.ndarray,
+            contexts=None, 
+            probs=None, 
         ):
         self.meta_info = meta_info
         self.chord_info = chord_info
         self.sequence = sequence
+        self.contexts = contexts
+        self.probs = probs
 
-        self._parse_and_group()
-        self._transform()
+        self._group_tokens()
+        self._parse_groups()
 
         bar_token_positions = np.where(sequence==SequenceWord.BAR.value.offset)[0]
 
-        # self.sequence = sequence[bar_token_positions[0]:]
-        # self.sequence = [
-        #     TokenMonitor(contexts[i], LogitProbs(probs[i]), self.sequence[i]) 
-        #     for i in range(len(contexts))
-        # ]
-        
-        # self.num_bars = len(bar_token_positions)
-        # self.piano_roll = self.num_bars * [np.zeros((
-        #     SequenceWord.PITCH.value.vocab_size, 
-        #     SequenceWord.NOTE_DURATION.value.vocab_size))]
-        # self._record_to_piano_roll()
+        # if probs is not None:
+        #     self.generated_sequence = sequence[bar_token_positions[0]:]
+        #     self.sequence = [
+        #         TokenMonitor(contexts[i], LogitProbs(probs[i]), self.sequence[i]) 
+        #         for i in range(len(contexts))
+        #     ]
+            
+        #     self.num_bars = len(bar_token_positions)
+        #     self.piano_roll = self.num_bars * [np.zeros((
+        #         SequenceWord.PITCH.value.vocab_size, 
+        #         SequenceWord.NOTE_DURATION.value.vocab_size))]
+        #     self._record_to_piano_roll()
 
-    def _parse_and_group(self):
-        note_detector = NoteDetector()
-        chord_detector = ChordDetector()
+    def _group_tokens(self):
+        note_group_detector = NoteDetector()
+        chord_group_detector = ChordDetector()
+        self.bar_count = -1
+        self.metadata_count = -1
+        self.invalid_group_count = -1
 
-        def feed_token_to_detector(detector:SequentialDetector, token):
+        def detect_and_group(detector:SequentialDetector, token, group_field:str):
             detection_result = detector.detect(token)
             if detection_result is True:
-                self.parsed_items.append(detector.components)
+                self.parsed_items.update({f"{group_field}{detector.count}": detector.components})
             elif detection_result is False:
-                self.invalid_tokens.extend(detector.components)
+                self.invalid_group_count += 1
+                self.parsed_items.update({f"invalid{self.invalid_group_count}": detector.components})
             else:
                 return
             detector.initialize()
         
-        self.parsed_items = []
-        self.invalid_tokens = []
+        self.parsed_items = {}
         for token in self.sequence:
-            if token == self.BAR_TOKEN or token == self.EOS_TOKEN:
-                self.parsed_items.append([token])
+            if token == self.BAR_TOKEN:
+                self.bar_count += 1
+                self.parsed_items.update({f"bar{self.bar_count}": [token]})
+            elif token == self.EOS_TOKEN:
+                self.parsed_items.update({f"eos": [token]})
+            elif token in self.NOTE_VOCAB_RANGE:
+                detect_and_group(note_group_detector, token, group_field="note")
             elif token in self.CHORD_VOCAB_RANGE:
-                feed_token_to_detector(chord_detector, token)
+                detect_and_group(chord_group_detector, token, group_field="chord")
             else:
-                feed_token_to_detector(note_detector, token)
+                self.metadata_count += 1
+                self.parsed_items.update({f"meta{self.metadata_count}": [token]})
 
-    def _transform(self):
-        pass
+    def _parse_groups(self):
+        for k, v in self.parsed_items.items():
+            if "note" in k:
+                pass
 
     def _record_to_piano_roll(self):
         pass
@@ -364,16 +398,15 @@ class SequenceMonitor:
         pass
 
 
+
 hist = SequenceMonitor(
     contexts=contexts, 
     probs=probs, 
-    sequence=generated_sequence,
+    sequence=np.insert(sequence,103,35),
     meta_info=meta_info,
     chord_info=chord_info
 )
-
-
-hist._parse_and_group()
+hist._group_tokens()
 hist.parsed_items
 
 hist.sequence[7].prob.visualize()
