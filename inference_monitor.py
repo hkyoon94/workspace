@@ -241,11 +241,6 @@ class Token:
     def interpret(self):
         pass
 
-class Note:
-    def __init__(self, token_group:list):
-        pass
-
-
 
 class SequentialDetector:
     RANGES: list[range]
@@ -273,6 +268,7 @@ class SequentialDetector:
                 return None
         else:
             return False
+        
 
 class NoteDetector(SequentialDetector):
     RANGES = [
@@ -300,6 +296,10 @@ class Note:
     VELOCITY = SequenceWord.VELOCITY.value
     PITCH = SequenceWord.PITCH.value
     DURATION = SequenceWord.NOTE_DURATION.value
+    PITCH_MAP = {
+        0:'C', 1:'C#', 2:'D', 3:'D#', 4:'E', 5:'F', 
+        6:'F#', 7:'G', 8:'Ab', 9:'A', 10:'Bb', 11:'B'
+    }
 
     def __init__(self, meta_info, token_group):
         self.position = token_group[0] - self.POSITION.offset
@@ -307,10 +307,28 @@ class Note:
         self.pitch = token_group[2] - self.PITCH.offset
         self.duration = token_group[3] - self.DURATION.offset
 
-    def pitch_array():
-        pass
+    def __repr__(self):
+        pitch_octave, pitch_num = divmod(self.pitch, 12)
+        pitch_name = self.PITCH_MAP.get(pitch_num)
+        return (
+           f"pos: {self.position}/{self.POSITION.vocab_size}\t| " + 
+           f"vel: {self.velocity}/{self.VELOCITY.vocab_size}\t| " + 
+           f"pitch: {pitch_name}{pitch_octave}\t| " + 
+           f"dur: {self.duration}/{self.DURATION.vocab_size}"
+       )
+    
+class Chord:
+    POSITION = ChordWord.CHORD_POSITION.value
+    CHORD = ChordWord.CHORD.value
+    DURATION = ChordWord.CHORD_DURATION.value
 
+    def __init__(self, meta_info, token_group):
+        self.position = token_group[0] - self.POSITION.offset
+        self.chord = token_group[1] - self.CHORD.offset
+        self.duration = token_group[2] - self.DURATION.offset
 
+    def __repr__(self):
+        chord
 
 
 class SequenceMonitor:
@@ -376,12 +394,12 @@ class SequenceMonitor:
             if token == self.BAR_TOKEN:
                 self.bar_count += 1
                 self.parsed_items.update({f"bar{self.bar_count}": [token]})
-            elif token == self.EOS_TOKEN:
-                self.parsed_items.update({f"eos": [token]})
             elif token in self.NOTE_VOCAB_RANGE:
                 detect_and_group(note_group_detector, token, group_field="note")
             elif token in self.CHORD_VOCAB_RANGE:
                 detect_and_group(chord_group_detector, token, group_field="chord")
+            elif token == self.EOS_TOKEN:
+                self.parsed_items.update({f"eos": [token]})
             else:
                 self.metadata_count += 1
                 self.parsed_items.update({f"meta{self.metadata_count}": [token]})
