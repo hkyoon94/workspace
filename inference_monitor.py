@@ -4,53 +4,106 @@ from pprint import pprint
 from ast import literal_eval
 import torch
 import matplotlib.pyplot as plt
-from dioai.preprocessor.utils.container import MetaInfo
-from dioai.transformer_xl.midi_generator.inferrer import InferenceTask
-from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
-from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
-from dioai.transformer_xl.midi_generator.inference.context import Context
+from miditoolkit import MidiFile
+import pypianoroll
+
+from dioai.preprocessor.utils.container import WordSequence, MetaInfo, ChordInfo, GuidelineInfo
 from dioai.preprocessor.offset import VOCAB_SIZE, SpecialToken, SequenceWord, ChordWord
-from dioai.preprocessor.decoder.midi_writer import NoteWriter
-from dioai.preprocessor.utils.container import WordSequence
+from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
+from dioai.preprocessor.decoder.decoder import decode_midi
+
+from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
+from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask, PostprocessTask
+from dioai.transformer_xl.midi_generator.inferrer import InferenceTask
+from dioai.transformer_xl.midi_generator.inference.context import Context
 
 WORKING_PATH = "/home/honggyu/workspace"
 SAMPLE_INFO_PATH = WORKING_PATH + "/_datasets/raw_data/2023-05-12/sample_info.csv"
 GUDELINE_KEYS = (
-    "figure_a", "pitch_a", "duration_b", "position_b", "position_c", "position_e", "position_f", "position_g"
+    "figure_a", 
+    "pitch_a", 
+    "duration_b", 
+    "position_b", 
+    "position_c", 
+    "position_e", 
+    "position_f", 
+    "position_g"
 )
 df = pd.read_csv(SAMPLE_INFO_PATH)
+df.rename(columns={"sample_rhythm": "rhythm"}, inplace=True)
+df["audio_key"] = df["audio_key"] + df["chord_type"]
 
 
+
+# building metadata for generating
 sample_info = df.iloc[2000].to_dict()
 
-sample_info.update({"rhythm": sample_info["sample_rhythm"]})
-sample_info.update({"audio_key": sample_info["audio_key"] + sample_info["chord_type"]})
-
 meta_info = MetaInfo(**sample_info)
-pprint(vars(meta_info))
+guideline_info = GuidelineInfo.create(**sample_info)
+chord_info = ChordInfo(
+    **sample_info, 
+    chord_progression=literal_eval(sample_info["chord_progressions"])[0],
+    # chord_progression=[
+    #     'G', 'G', 'G', 'G', ...
+    # ]
+)
 
+
+# preparing generator
 generator_args = {}
 generator_args.update({
     "checkpoint_dir": WORKING_PATH + "/_model_checkpoints/20230516-115949",
     "output_dir": WORKING_PATH + "/_outputs",
+    "num_generate": 3, "top_k": 32, "temperature": 0.95
 })
 generator_args.update(vars(meta_info))
-generator_args.update({"chord_progression": literal_eval(sample_info["chord_progressions"])[0]})
-# generator_args.update({"chord_sample_id": sample_info["id"]})
-for key in GUDELINE_KEYS: generator_args.update({key: sample_info[key]})
-generator_args.update({"num_generate": 3, "top_k": 32, "temperature": 0.95})
 
+for key in GUDELINE_KEYS: 
+    generator_args.update({key: sample_info[key]})
+
+generator_args.update(vars(chord_info))
+# generator_args.update({"chord_sample_id": sample_info["id"]})
+
+model_initializer = ModelInitializeTask(map_location='cuda', device=torch.device('cuda'))
+model = model_initializer.execute()
 
 preprocessor = PreprocessTask()
 encoded_input = preprocessor.execute(generator_args)
 
-model_initializer = ModelInitializeTask(map_location='cuda', device=torch.device('cuda'))
 generator = InferenceTask(device='cuda')
 generator(
-    model=model_initializer.execute(),
+    model=model, 
     input_data=preprocessor.input_data,
     inference_cfg=model_initializer.inference_cfg
 )
+
+
+# GENERATING
+with torch.no_grad():
+    init_sequence, init_memory = generator.init_input_sequence(
+        encoded_input.input_concatenated
+    )
+    sequence, contexts, probs = generator.generate_sequence(
+        sequence=init_sequence, memory=init_memory, context=Context()
+    )
+
+decoded_midi = decode_midi(
+    meta_info=meta_info,
+    chord_info=chord_info,
+    word_sequence=WordSequence.create(sequence)
+)
+DECODED_PATH = WORKING_PATH + "/ex.mid"
+decoded_midi.dump(DECODED_PATH)
+
+
+NoteSequenceEncoder().encode(MidiFile(DECODED_PATH), sample_info)
+
+
+obj = pypianoroll.read(DECODED_PATH)
+obj.plot()
+obj.tracks[0].plot()
+
+
 
 class PositionProb:
     pass
@@ -150,7 +203,7 @@ class LogitProbs:
         plt.close()
     
 
-class GeneratedToken:
+class TokenMonitor:
     def __init__(self, context:Context, prob:LogitProbs, token):
         self.context = context
         self.prob = prob
@@ -161,30 +214,11 @@ class GeneratedToken:
 
 class GenerationHistory:
     def __init__(self, sequence, contexts, probs):
-        self.hist = [GeneratedToken(contexts[i], LogitProbs(probs[i]), sequence[i]) 
+        self.hist = [TokenMonitor(contexts[i], LogitProbs(probs[i]), sequence[i]) 
                      for i in range(len(contexts))]
 
 
-
-# generator.execute(encoded_input)
-
-with torch.no_grad():
-    init_sequence, init_memory = generator.init_input_sequence(
-        encoded_input.input_concatenated
-    )
-    sequence, contexts, probs = generator.generate_sequence(
-        sequence=init_sequence, memory=init_memory, context=Context()
-    )
-    generation_hist = GenerationHistory(contexts=contexts, probs=probs, sequence=sequence)
-
-generation_hist.hist[7].prob.visualize()
-
-prob = generation_hist.hist[202].prob
-fit, ax = plt.subplots()
-ax.bar(prob.pitch_range, prob.pitch)
-
-
-class SequenceViewer:
+class SequenceMonitor:
     position_range = SequenceWord.NOTE_POSITION.value.vocab_range
     velocity_range = SequenceWord.VELOCITY.value.vocab_range
     pitch_range = SequenceWord.PITCH.value.vocab_range
@@ -194,7 +228,6 @@ class SequenceViewer:
     chord_position_range = ChordWord.CHORD_POSITION.value.vocab_range
     chord_range = ChordWord.CHORD.value.vocab_range
     chord_duration_range = ChordWord.CHORD_DURATION.value.vocab_range
-    decoder = NoteWriter()
 
     def __init__(self, sequence):
         bar_token_positions = np.where(np.array(sequence)==SequenceWord.BAR.value.offset)[0]
@@ -214,20 +247,16 @@ class SequenceViewer:
             if token in self.position_range:
                 self.proll[bar_idx][self.NUM_PITCHES-pitch,]
 
-    def visualize(self):
+    def visualize(self, visual_midi=True):
         pass
 
-viewer = SequenceViewer(sequence)
-viewer.num_bars
 
-bar_token_positions = np.where(np.array(sequence)==SequenceWord.BAR.value.offset)[0]
-num_bars = len(bar_token_positions)
-note_sequence = sequence[bar_token_positions[0]:]
-sequence_info = {}
-sequence_info.update(vars(meta_info))
-sequence_info.update({"chord_progression": generator_args["chord_progression"]})
-sequence_info.update({"note_sequence": note_sequence})
-decoder = NoteWriter(
-    meta_info=meta_info, 
-    word_sequence=WordSequence.create(**sequence_info)
-)
+generation_hist = GenerationHistory(contexts=contexts, probs=probs, sequence=sequence)
+
+generation_hist.hist[7].prob.visualize()
+
+prob = generation_hist.hist[202].prob
+fit, ax = plt.subplots()
+ax.bar(prob.pitch_range, prob.pitch)
+
+
