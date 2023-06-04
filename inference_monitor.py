@@ -1,19 +1,35 @@
 import pandas as pd
-import numpy as np
-from pprint import pprint
 from ast import literal_eval
+import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from miditoolkit import MidiFile
 import pypianoroll
+from fractions import Fraction
 
-from dioai.preprocessor.utils.container import WordSequence, MetaInfo, ChordInfo, GuidelineInfo
-from dioai.preprocessor.offset import VOCAB_SIZE, SpecialToken, SequenceWord, ChordWord
+from dioai.preprocessor.utils.container import (
+    WordSequence, 
+    MetaInfo, 
+    ChordInfo, 
+    GuidelineInfo
+)
+from dioai.preprocessor.utils.constants import (
+    DEFAULT_NUM_BEATS, 
+    DEFAULT_TICKS_PER_BEAT, 
+    NOTE_RESOLUTION, 
+    VELOCITY_BINS
+)
+from dioai.preprocessor.offset import (
+    VOCAB_SIZE, 
+    SpecialToken, 
+    SequenceWord, 
+    ChordWord
+)
 from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
 from dioai.preprocessor.decoder.decoder import decode_midi
 
 from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
-from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask, PostprocessTask
+from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
 from dioai.transformer_xl.midi_generator.inferrer import InferenceTask
 from dioai.transformer_xl.midi_generator.inference.context import Context
 
@@ -29,10 +45,9 @@ GUDELINE_KEYS = (
     "position_f", 
     "position_g"
 )
-df = pd.read_csv(SAMPLE_INFO_PATH)
+df = pd.read_csv(SAMPLE_INFO_PATH, converters={"chord_progressions": literal_eval})
 df.rename(columns={"sample_rhythm": "rhythm"}, inplace=True)
 df["audio_key"] = df["audio_key"] + df["chord_type"]
-
 
 
 # building metadata for generating
@@ -42,7 +57,7 @@ meta_info = MetaInfo(**sample_info)
 guideline_info = GuidelineInfo.create(**sample_info)
 chord_info = ChordInfo(
     **sample_info, 
-    chord_progression=literal_eval(sample_info["chord_progressions"])[0],
+    chord_progression=sample_info["chord_progressions"][0],
     # chord_progression=[
     #     'G', 'G', 'G', 'G', ...
     # ]
@@ -54,7 +69,9 @@ generator_args = {}
 generator_args.update({
     "checkpoint_dir": WORKING_PATH + "/_model_checkpoints/20230516-115949",
     "output_dir": WORKING_PATH + "/_outputs",
-    "num_generate": 3, "top_k": 32, "temperature": 0.95
+    "num_generate": 3, 
+    "top_k": 32, 
+    "temperature": 0.95
 })
 generator_args.update(vars(meta_info))
 
@@ -64,6 +81,8 @@ for key in GUDELINE_KEYS:
 generator_args.update(vars(chord_info))
 # generator_args.update({"chord_sample_id": sample_info["id"]})
 
+
+# initializing generator
 model_initializer = ModelInitializeTask(map_location='cuda', device=torch.device('cuda'))
 model = model_initializer.execute()
 
@@ -77,8 +96,7 @@ generator(
     inference_cfg=model_initializer.inference_cfg
 )
 
-
-# GENERATING
+# generating
 with torch.no_grad():
     init_sequence, init_memory = generator.init_input_sequence(
         encoded_input.input_concatenated
@@ -86,22 +104,28 @@ with torch.no_grad():
     sequence, contexts, probs = generator.generate_sequence(
         sequence=init_sequence, memory=init_memory, context=Context()
     )
+sequence = np.array(sequence)
+# monitoring
+bar_token_positions = np.where(sequence==SequenceWord.BAR.value.offset)[0]
+generated_sequence = sequence[bar_token_positions[0]:]
+num_bars = len(bar_token_positions)
 
 decoded_midi = decode_midi(
     meta_info=meta_info,
     chord_info=chord_info,
-    word_sequence=WordSequence.create(sequence)
+    word_sequence=WordSequence.create(generated_sequence.tolist())
 )
 DECODED_PATH = WORKING_PATH + "/ex.mid"
 decoded_midi.dump(DECODED_PATH)
 
+decoded_midi_obj = pypianoroll.read(DECODED_PATH)
+decoded_midi_obj.plot()
+decoded_midi_obj.tracks[0].plot()
 
-NoteSequenceEncoder().encode(MidiFile(DECODED_PATH), sample_info)
+re_encoded_sequence = NoteSequenceEncoder().encode(MidiFile(DECODED_PATH), sample_info)
+generated_sequence == re_encoded_sequence
 
 
-obj = pypianoroll.read(DECODED_PATH)
-obj.plot()
-obj.tracks[0].plot()
 
 
 
@@ -122,11 +146,15 @@ class PitchProb:
     def _draw(self):
         pass
 
-    def visualize(self):
-        fig, ax = plt.subplots()
-        ax = self._draw(ax)
-        plt.show()
-        plt.close()
+    def visualize(self, ax:plt.Axes=None):
+        if ax is None:
+            fig, ax = plt.subplots()
+            ax = self._draw(ax)
+            plt.show()
+            plt.close()
+        else: 
+            return self._draw(ax)
+
 
 class LogitProbs:
     position_range = SequenceWord.NOTE_POSITION.value.vocab_range
@@ -212,51 +240,142 @@ class TokenMonitor:
     def interpret(self):
         pass
 
-class GenerationHistory:
-    def __init__(self, sequence, contexts, probs):
-        self.hist = [TokenMonitor(contexts[i], LogitProbs(probs[i]), sequence[i]) 
-                     for i in range(len(contexts))]
+
+
+
+
+class SequentialDetector:
+    RANGES: list[range]
+    def __init__(self):
+        self.num_components = len(self.RANGES)
+        self.count = -1
+        self.initialize()
+
+    def initialize(self):
+        self.i = 0
+        self.components = []
+        self.completion = np.array(self.num_components * [False])
+
+    def detect(self, token):
+        self.components.append(token)
+
+        if (token in self.RANGES[self.i] and 
+            self.completion[:self.i].all() and not self.completion[self.i:].any()):
+            self.completion[self.i] = True
+            if self.i == self.num_components-1:
+                self.count += 1
+                return True
+            else:
+                self.i += 1
+                return None
+        else:
+            return False
+
+class NoteDetector(SequentialDetector):
+    RANGES = [
+        SequenceWord.NOTE_POSITION.value.vocab_range,
+        SequenceWord.VELOCITY.value.vocab_range,
+        SequenceWord.PITCH.value.vocab_range,
+        SequenceWord.NOTE_DURATION.value.vocab_range
+    ]
+
+    def __init__(self):
+        super().__init__()
+
+
+class ChordDetector(SequentialDetector):
+    RANGES = [
+        ChordWord.CHORD_POSITION.value.vocab_range,
+        ChordWord.CHORD.value.vocab_range,
+        ChordWord.CHORD_DURATION.value.vocab_range
+    ]
+
+    def __init__(self):
+        super().__init__()
+
 
 
 class SequenceMonitor:
-    position_range = SequenceWord.NOTE_POSITION.value.vocab_range
-    velocity_range = SequenceWord.VELOCITY.value.vocab_range
-    pitch_range = SequenceWord.PITCH.value.vocab_range
-    NUM_PITCHES = SequenceWord.PITCH.value.vocab_size
-    duration_range = SequenceWord.NOTE_DURATION.value.vocab_range
-    NUM_RESOLUTIONS = SequenceWord.NOTE_DURATION.value.vocab_size
-    chord_position_range = ChordWord.CHORD_POSITION.value.vocab_range
-    chord_range = ChordWord.CHORD.value.vocab_range
-    chord_duration_range = ChordWord.CHORD_DURATION.value.vocab_range
+    BAR_TOKEN = SequenceWord.BAR.value.offset
+    EOS_TOKEN = SpecialToken.EOS.value.offset
+    CHORD_VOCAB_RANGE = range(ChordWord.CHORD_POSITION.value.offset, 
+                              ChordWord.CHORD_DURATION.value.last)
 
-    def __init__(self, sequence):
-        bar_token_positions = np.where(np.array(sequence)==SequenceWord.BAR.value.offset)[0]
-        self.num_bars = len(bar_token_positions)
-        self.note_sequence = sequence[bar_token_positions[0]:]
-        self.proll = self.num_bars * [np.zeros((
-            SequenceWord.PITCH.value.vocab_size, 
-            SequenceWord.NOTE_DURATION.value.vocab_size))]
-        self._record()
+    def __init__( 
+            self, 
+            meta_info:MetaInfo, 
+            chord_info, 
+            contexts, 
+            probs, 
+            sequence:np.ndarray
+        ):
+        self.meta_info = meta_info
+        self.chord_info = chord_info
+        self.sequence = sequence
 
-    def _record(self):
-        bar_idx = -1
+        self._parse_and_group()
+        self._transform()
+
+        bar_token_positions = np.where(sequence==SequenceWord.BAR.value.offset)[0]
+
+        # self.sequence = sequence[bar_token_positions[0]:]
+        # self.sequence = [
+        #     TokenMonitor(contexts[i], LogitProbs(probs[i]), self.sequence[i]) 
+        #     for i in range(len(contexts))
+        # ]
+        
+        # self.num_bars = len(bar_token_positions)
+        # self.piano_roll = self.num_bars * [np.zeros((
+        #     SequenceWord.PITCH.value.vocab_size, 
+        #     SequenceWord.NOTE_DURATION.value.vocab_size))]
+        # self._record_to_piano_roll()
+
+    def _parse_and_group(self):
+        note_detector = NoteDetector()
+        chord_detector = ChordDetector()
+
+        def feed_token_to_detector(detector:SequentialDetector, token):
+            detection_result = detector.detect(token)
+            if detection_result is True:
+                self.parsed_items.append(detector.components)
+            elif detection_result is False:
+                self.invalid_tokens.extend(detector.components)
+            else:
+                return
+            detector.initialize()
+        
+        self.parsed_items = []
+        self.invalid_tokens = []
         for token in self.sequence:
-            if token == 2:
-                bar_idx += bar_idx
-                continue
-            if token in self.position_range:
-                self.proll[bar_idx][self.NUM_PITCHES-pitch,]
+            if token == self.BAR_TOKEN or token == self.EOS_TOKEN:
+                self.parsed_items.append([token])
+            elif token in self.CHORD_VOCAB_RANGE:
+                feed_token_to_detector(chord_detector, token)
+            else:
+                feed_token_to_detector(note_detector, token)
+
+    def _transform(self):
+        pass
+
+    def _record_to_piano_roll(self):
+        pass
 
     def visualize(self, visual_midi=True):
         pass
 
 
-generation_hist = GenerationHistory(contexts=contexts, probs=probs, sequence=sequence)
+hist = SequenceMonitor(
+    contexts=contexts, 
+    probs=probs, 
+    sequence=generated_sequence,
+    meta_info=meta_info,
+    chord_info=chord_info
+)
 
-generation_hist.hist[7].prob.visualize()
 
-prob = generation_hist.hist[202].prob
-fit, ax = plt.subplots()
-ax.bar(prob.pitch_range, prob.pitch)
+hist._parse_and_group()
+hist.parsed_items
+
+hist.sequence[7].prob.visualize()
 
 
