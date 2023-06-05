@@ -1,11 +1,12 @@
-import pandas as pd
-from ast import literal_eval
-import numpy as np
 import torch
-import matplotlib.pyplot as plt
-from miditoolkit import MidiFile
 import pypianoroll
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from miditoolkit import MidiFile
 from fractions import Fraction
+from ast import literal_eval
+from copy import deepcopy
 
 from dioai.preprocessor.utils.container import (
     WordSequence, 
@@ -27,7 +28,7 @@ from dioai.preprocessor.offset import (
 )
 from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
 from dioai.preprocessor.decoder.decoder import decode_midi
-from dioai.preprocessor.decoder.container import Note, Chord
+from dioai.preprocessor.decoder.container import Note, ChordName
 
 from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
 from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
@@ -102,10 +103,17 @@ with torch.no_grad():
     init_sequence, init_memory = generator.init_input_sequence(
         encoded_input.input_concatenated
     )
-    sequence, contexts, probs = generator.generate_sequence(
-        sequence=init_sequence, memory=init_memory, context=Context()
-    )
+    sequence, memory, context = init_sequence, init_memory, Context()
+    probs, contexts = [], []
+    for _ in range(generator.inference_cfg.GENERATION.generation_length):
+        if sequence[-1] == SpecialToken.EOS.value.offset:
+            break
+        contexts.append(deepcopy(context))
+        sequence, memory, context, prob = generator.process(sequence, memory, context)
+        probs.append(deepcopy(prob))
+
 sequence = np.array(sequence)
+
 # monitoring
 bar_token_positions = np.where(sequence==SequenceWord.BAR.value.offset)[0]
 generated_sequence = sequence[bar_token_positions[0]:]
@@ -321,14 +329,27 @@ class Chord:
     POSITION = ChordWord.CHORD_POSITION.value
     CHORD = ChordWord.CHORD.value
     DURATION = ChordWord.CHORD_DURATION.value
-
+    QUALITY_MAP = {
+        0: '', 1: '', 
+    }
     def __init__(self, meta_info, token_group):
         self.position = token_group[0] - self.POSITION.offset
         self.chord = token_group[1] - self.CHORD.offset
         self.duration = token_group[2] - self.DURATION.offset
 
     def __repr__(self):
-        chord
+        pass
+
+
+
+class ChordGroup:
+    def __init__(self, meta_info, group:dict):
+        self.chord = [Chord(meta_info, v) for k, v in group.items() if "chord" in k][0]
+        self.notes = [Note(meta_info, v) for k, v in group.items() if "note" in k]
+
+class BarGroup:
+    def __init__(self, meta_info, group:dict):
+        self.notes = [Note(meta_info, v) for k, v in group if "note" in k]
 
 
 class SequenceMonitor:
@@ -353,7 +374,7 @@ class SequenceMonitor:
         self.contexts = contexts
         self.probs = probs
 
-        self._group_tokens()
+        self._collect_valid_tokens()
         self._parse_groups()
 
         bar_token_positions = np.where(sequence==SequenceWord.BAR.value.offset)[0]
@@ -371,14 +392,14 @@ class SequenceMonitor:
         #         SequenceWord.NOTE_DURATION.value.vocab_size))]
         #     self._record_to_piano_roll()
 
-    def _group_tokens(self):
+    def _collect_valid_tokens(self):
         note_group_detector = NoteDetector()
         chord_group_detector = ChordDetector()
         self.bar_count = -1
         self.metadata_count = -1
         self.invalid_group_count = -1
 
-        def detect_and_group(detector:SequentialDetector, token, group_field:str):
+        def detect_and_collect(detector:SequentialDetector, token, group_field:str):
             detection_result = detector.detect(token)
             if detection_result is True:
                 self.parsed_items.update({f"{group_field}{detector.count}": detector.components})
@@ -394,20 +415,37 @@ class SequenceMonitor:
             if token == self.BAR_TOKEN:
                 self.bar_count += 1
                 self.parsed_items.update({f"bar{self.bar_count}": [token]})
-            elif token in self.NOTE_VOCAB_RANGE:
-                detect_and_group(note_group_detector, token, group_field="note")
-            elif token in self.CHORD_VOCAB_RANGE:
-                detect_and_group(chord_group_detector, token, group_field="chord")
             elif token == self.EOS_TOKEN:
                 self.parsed_items.update({f"eos": [token]})
+            elif token in self.NOTE_VOCAB_RANGE:
+                detect_and_collect(note_group_detector, token, group_field="note")
+            elif token in self.CHORD_VOCAB_RANGE:
+                detect_and_collect(chord_group_detector, token, group_field="chord")
             else:
                 self.metadata_count += 1
                 self.parsed_items.update({f"meta{self.metadata_count}": [token]})
 
     def _parse_groups(self):
-        for k, v in self.parsed_items.items():
-            if "note" in k:
-                pass
+        def transform_group(str, group):
+            if str == "chord":
+                print(group)
+                group = ChordGroup(self.meta_info, group)
+                print('done?')
+            elif str == "bar":
+                group = BarGroup(self.meta_info, group)
+            return group
+        def group_by(str):
+            groups, group = [], {}
+            for _, (k, v) in enumerate(self.parsed_items.items()):
+                print(str, k)
+                if str in k and group != {}:
+                    groups.append(transform_group(str, group))
+                    group = {k: v}
+                else:
+                    group.update({k: v})
+            return groups
+        self.chord_groups = group_by("chord")
+        self.bar_groups = group_by("bar")
 
     def _record_to_piano_roll(self):
         pass
@@ -417,15 +455,30 @@ class SequenceMonitor:
 
 
 
-hist = SequenceMonitor(
+generated_hist = SequenceMonitor(
     contexts=contexts, 
     probs=probs, 
-    sequence=np.insert(sequence,103,35),
+    sequence=generated_sequence,
     meta_info=meta_info,
     chord_info=chord_info
 )
-hist._group_tokens()
-hist.parsed_items
+generated_hist._collect_valid_tokens()
+# generated_hist.parsed_items
+generated_hist._parse_groups()
+generated_hist.chord_groups
+generated_hist.bar_groups
+
+re_encoded = SequenceMonitor(
+    contexts=contexts, 
+    probs=probs, 
+    sequence=re_encoded_sequence,
+    meta_info=meta_info,
+    chord_info=chord_info
+)
+re_encoded._group_tokens()
+re_encoded.parsed_items
+
+
 
 hist.sequence[7].prob.visualize()
 
