@@ -137,23 +137,22 @@ st = time()
 hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
 ft = time(); print(f"{ft-st:.4f}")
 
-print(hist.chord_unions[1])
+print(hist.harmonic_unions[0])
 print(hist.bar_unions[0])
 print(hist.bar_unions[1].group)
 print(hist.bar_unions[2].group)
-print(len(hist.chord_unions))
+print(len(hist.harmonic_unions))
 print(len(hist.bar_unions))
 
-union:unions.HarmonicUnion = hist.chord_unions[0]
-prob = PitchProb(union.notes[0].tokens[2].prob)
-prob.pitch.to_matrix
-len(prob.prob_filtered)
-prob.visualize()
+hist.harmonic_unions[0].notes[0].tokens[0].prob.note_position.visualize()
+hist.harmonic_unions[0].notes[0].tokens[1].prob.velocity.visualize()
+hist.harmonic_unions[0].notes[0].tokens[2].prob.pitch.visualize()
+hist.harmonic_unions[0].notes[0].tokens[3].prob.note_duration.visualize()
+
+hist.harmonic_unions[0].notes[0]
+hist.harmonic_unions[0].notes[0].tokens[0].prob.note_position.visualize()
 
 
-union.group
-union.chord
-union.group
 
 decoded_midi = decode_midi(
     meta_info=meta_info,
