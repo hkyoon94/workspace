@@ -118,12 +118,19 @@ with torch.no_grad():
     sequence_final = np.array(sequence_new)
 
 
+# MONITORING
+
 import dioai.monitor.sequence_monitor as sm
 import dioai.monitor.unions as unions
 import dioai.monitor.tokens as tokens
 import dioai.monitor.logitprobs as logitprobs
-reload(sm); reload(unions); reload(tokens); reload(logitprobs)
+reload(logitprobs)
+reload(tokens)
+reload(unions)
+reload(sm)
+
 from dioai.monitor.sequence_monitor import SequenceMonitor
+from dioai.monitor.logitprobs import PitchProb
 from time import time
 
 st = time()
@@ -131,18 +138,23 @@ hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
 ft = time(); print(f"{ft-st:.4f}")
 
 print(hist.chord_unions[1])
-print(hist.chord_unions[0].group)
-print(hist.chord_unions[1].group)
-print(hist.chord_unions[2].group)
-print(hist.chord_unions[3].group)
 print(hist.bar_unions[0])
 print(hist.bar_unions[1].group)
 print(hist.bar_unions[2].group)
 print(len(hist.chord_unions))
 print(len(hist.bar_unions))
 
+union:unions.HarmonicUnion = hist.chord_unions[0]
+prob = PitchProb(union.notes[0].tokens[2].prob)
+prob.pitch.to_matrix
+len(prob.prob_filtered)
+prob.visualize()
 
-# monitoring
+
+union.group
+union.chord
+union.group
+
 decoded_midi = decode_midi(
     meta_info=meta_info,
     chord_info=chord_info,
