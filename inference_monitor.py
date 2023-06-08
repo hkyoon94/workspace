@@ -124,6 +124,8 @@ reload(unions)
 reload(sm)
 
 from dioai.monitor.sequence_monitor import SequenceMonitor
+from dioai.monitor.tokens import compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance
+from sklearn.manifold import TSNE
 
 st = time()
 hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
@@ -134,10 +136,43 @@ hist.harmonic_unions[1].notes[1].tokens[1].prob.velocity.visualize()
 hist.harmonic_unions[1].notes[1].tokens[2].prob.pitch.visualize()
 hist.harmonic_unions[1].notes[1].tokens[3].prob.note_duration.visualize()
 
+union = hist.harmonic_unions[0]
+union.chord.chroma
+union.chord.tonal_centroid
+
+
 union = hist.bar_unions[0]
-union.pitches
+union.onsets()
 
 
+import matplotlib.pyplot as plt
+diatonic_qualities = np.array([0,3,3,0,0,3,6])
+scales = 9*np.array([0,2,4,5,7,9,11])
+diatonic_chords_ = diatonic_qualities + scales
+
+labels = 7 * [0]
+for i in range(1,12):
+    labels += 7 * [i]
+    diatonic_chords = np.concatenate((diatonic_chords, diatonic_chords_+i))
+
+tonal_centroids = np.zeros((len(labels),6))
+for i, token in enumerate(diatonic_chords):
+    tonal_centroids[i] = compute_tonal_centroid(compute_chord_chroma(token))
+
+res = TSNE(n_components=2).fit_transform(tonal_centroids)
+
+fig, ax = plt.subplots()
+ax.scatter(res[:,0], res[:,1], c=labels)
+plt.show()
+plt.close()
+
+compute_tonal_distance(0,2)
+
+
+from dioai.preprocessor.decoder.midi_writer import ChordWriter
+from dioai.preprocessor.decoder.container import Chord
+c = Chord(chord="Eb9#11",start=1,duration=1)
+c.tension
 
 decoded_midi = decode_midi(
     meta_info=meta_info,
