@@ -1,15 +1,12 @@
 import torch
-import json
 import pypianoroll
-import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from miditoolkit import MidiFile
-from fractions import Fraction
 from ast import literal_eval
 from copy import deepcopy
-from pprint import pprint as pp
 from importlib import reload
+from time import time
 
 from dioai.preprocessor.utils.container import (
     WordSequence, 
@@ -17,10 +14,7 @@ from dioai.preprocessor.utils.container import (
     ChordInfo, 
     GuidelineInfo
 )
-from dioai.preprocessor.offset import (
-    SpecialToken, 
-    SequenceWord, 
-)
+from dioai.preprocessor.offset import SpecialToken
 from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
 from dioai.preprocessor.decoder.decoder import decode_midi
 
@@ -28,6 +22,7 @@ from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializ
 from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
 from dioai.transformer_xl.midi_generator.inferrer import InferenceTask
 from dioai.transformer_xl.midi_generator.inference.context import Context
+
 
 WORKING_PATH = "/home/honggyu/workspace"
 SAMPLE_INFO_PATH = WORKING_PATH + "/_datasets/raw_data/2023-05-12/sample_info.csv"
@@ -85,11 +80,10 @@ preprocessor = PreprocessTask()
 encoded_input = preprocessor.execute(generator_args)
 
 generator = InferenceTask(device='cuda')
-generator(
-    model=model, 
-    input_data=preprocessor.input_data,
-    inference_cfg=model_initializer.inference_cfg
-)
+generator(model=model, 
+          input_data=preprocessor.input_data,
+          inference_cfg=model_initializer.inference_cfg)
+
 
 # GENERATING TOKENS
 with torch.no_grad():
@@ -130,27 +124,18 @@ reload(unions)
 reload(sm)
 
 from dioai.monitor.sequence_monitor import SequenceMonitor
-from dioai.monitor.logitprobs import PitchProb
-from time import time
 
 st = time()
 hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
 ft = time(); print(f"{ft-st:.4f}")
 
-print(hist.harmonic_unions[0])
-print(hist.bar_unions[0])
-print(hist.bar_unions[1].group)
-print(hist.bar_unions[2].group)
-print(len(hist.harmonic_unions))
-print(len(hist.bar_unions))
+hist.harmonic_unions[1].notes[1].tokens[0].prob.note_position.visualize()
+hist.harmonic_unions[1].notes[1].tokens[1].prob.velocity.visualize()
+hist.harmonic_unions[1].notes[1].tokens[2].prob.pitch.visualize()
+hist.harmonic_unions[1].notes[1].tokens[3].prob.note_duration.visualize()
 
-hist.harmonic_unions[0].notes[0].tokens[0].prob.note_position.visualize()
-hist.harmonic_unions[0].notes[0].tokens[1].prob.velocity.visualize()
-hist.harmonic_unions[0].notes[0].tokens[2].prob.pitch.visualize()
-hist.harmonic_unions[0].notes[0].tokens[3].prob.note_duration.visualize()
-
-hist.harmonic_unions[0].notes[0]
-hist.harmonic_unions[0].notes[0].tokens[0].prob.note_position.visualize()
+union = hist.bar_unions[0]
+union.pitches
 
 
 
