@@ -125,6 +125,7 @@ reload(sm)
 
 from dioai.monitor.sequence_monitor import SequenceMonitor
 from dioai.monitor.tokens import compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance
+from dioai.monitor.tokens import NUM_CHORD_QUALITY, Chord
 from sklearn.manifold import TSNE
 
 st = time()
@@ -147,8 +148,9 @@ union.onsets()
 
 import matplotlib.pyplot as plt
 diatonic_qualities = np.array([0,3,3,0,0,3,6])
-scales = 9*np.array([0,2,4,5,7,9,11])
+scales = NUM_CHORD_QUALITY * np.array([0,2,4,5,7,9,11])
 diatonic_chords_ = diatonic_qualities + scales
+diatonic_chords = diatonic_chords_
 
 labels = 7 * [0]
 for i in range(1,12):
@@ -166,7 +168,8 @@ ax.scatter(res[:,0], res[:,1], c=labels)
 plt.show()
 plt.close()
 
-compute_tonal_distance(0,2)
+compute_tonal_distance(0,99) # C, B
+compute_tonal_distance(12,13)
 
 
 from dioai.preprocessor.decoder.midi_writer import ChordWriter
