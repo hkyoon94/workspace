@@ -16,7 +16,6 @@ from dioai.preprocessor.utils.container import (
 )
 from dioai.preprocessor.offset import SpecialToken
 from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
-from dioai.preprocessor.decoder.decoder import decode_midi
 
 from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
 from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
@@ -36,6 +35,7 @@ GUDELINE_KEYS = (
     "position_f", 
     "position_g"
 )
+
 df = pd.read_csv(SAMPLE_INFO_PATH, converters={"chord_progressions": literal_eval})
 df.rename(columns={"sample_rhythm": "rhythm"}, inplace=True)
 df["audio_key"] = df["audio_key"] + df["chord_type"]
@@ -106,7 +106,7 @@ with torch.no_grad():
             ignored_iters.append(i)
 
         if sequence_new[-1] == SpecialToken.EOS.value.offset:
-            print(f"Finished generating: {len(sequence_new) - len(init_sequence)} / iteration: {i+1}")
+            print(f"Finished generating: {len(sequence_new) - len(init_sequence)} tokens / iteration: {i+1}")
             break
 
         sequence_pre = deepcopy(sequence_new)
@@ -125,19 +125,16 @@ reload(unions)
 reload(sm)
 
 from dioai.monitor.sequence_monitor import SequenceMonitor
-from dioai.monitor.tokens import compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance
-from dioai.monitor.tokens import NUM_CHORD_QUALITY, Chord
-from sklearn.manifold import TSNE
 
-st = time()
 hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
-ft = time(); print(f"{ft-st:.4f}")
 
-union = hist.harmonic_unions[0]
-union.notes[0].plot()
-union.chord.chroma
-union.chord.tonal_centroid
+hist.play_sequence()
+hist.meta_info
 
+hist.harmonic_unions[0].notes[0].plot()
+
+
+hist.harmonic_unions[0].visualize()
 hist.harmonic_unions[0].notes[1].plot()
 
 fig = plt.figure()
@@ -147,6 +144,9 @@ union.onsets()
 
 
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+from dioai.monitor.tokens import compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance
+from dioai.monitor.tokens import NUM_CHORD_QUALITY
 
 fig = plt.figure()
 fig_1 = plt.figure()
@@ -180,22 +180,3 @@ plt.close()
 compute_tonal_distance(0,99) # C, B
 compute_tonal_distance(12,13)
 
-
-from dioai.preprocessor.decoder.midi_writer import ChordWriter
-from dioai.preprocessor.decoder.container import Chord
-c = Chord(chord="Eb9#11",start=1,duration=1)
-c.tension
-
-decoded_midi = decode_midi(
-    meta_info=meta_info,
-    chord_info=chord_info,
-    word_sequence=WordSequence.create(sequence_final.tolist())
-)
-DECODED_PATH = WORKING_PATH + "/ex.mid"
-decoded_midi.dump(DECODED_PATH)
-
-decoded_midi_obj = pypianoroll.read(DECODED_PATH)
-decoded_midi_obj.plot()
-decoded_midi_obj.tracks[0].plot()
-
-re_encoded_sequence = NoteSequenceEncoder().encode(MidiFile(DECODED_PATH), sample_info)

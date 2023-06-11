@@ -3962,6 +3962,21 @@ files = [
 pyparsing = ">=2.1.4"
 
 [[package]]
+name = "pyfluidsynth"
+version = "1.3.2"
+description = "Python bindings for FluidSynth, a MIDI synthesizer that uses SoundFont instruments"
+category = "main"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pyFluidSynth-1.3.2-py3-none-any.whl", hash = "sha256:874d875bc66d8f90047b32f8daaf7c9dd34e6248182d02dc5cd54c08ad1492ac"},
+    {file = "pyFluidSynth-1.3.2.tar.gz", hash = "sha256:fa2e68397578506eb3e2b406ba0b8e3f4987a3b57b7c96594703a724a07555f4"},
+]
+
+[package.dependencies]
+numpy = "*"
+
+[[package]]
 name = "pygit2"
 version = "1.12.0"
 description = "Python bindings for libgit2."
@@ -5855,4 +5870,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.11"
-content-hash = "ab5fae7708ba6fb30cfa357ef4fecc25ecb924894463cf2699e10106d697b2b3"
+content-hash = "bcdea3d4c886c13a23a04134e3796374cbee2a091200f51861cc8be6815a49b7"
