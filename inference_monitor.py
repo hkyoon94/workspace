@@ -25,7 +25,7 @@ from dioai.transformer_xl.midi_generator.inference.context import Context
 
 
 WORKING_PATH = "/home/honggyu/workspace"
-SAMPLE_INFO_PATH = WORKING_PATH + "/_datasets/raw_data/2023-05-12/sample_info.csv"
+SAMPLE_INFO_PATH = WORKING_PATH + "/_datasets/raw_data/2023-06-07/sample_info.csv"
 GUDELINE_KEYS = (
     "figure_a", 
     "pitch_a", 
@@ -100,12 +100,13 @@ with torch.no_grad():
         probs.append(deepcopy(prob))
 
         if len(sequence_pre) + 1 != len(sequence_new):
-            print(f"WARNING: Token ignored on iteration {i}!!!\n\t(Context type: {context.types})")
+            print(f"WARNING: Token ignored on iteration {i+1}!!!\n\t(Context type: {context.types})")
             ignored_contexts.append(contexts.pop())
             ignored_probs.append(probs.pop())
             ignored_iters.append(i)
 
         if sequence_new[-1] == SpecialToken.EOS.value.offset:
+            print(f"Finished generating: {len(sequence_new) - len(init_sequence)} / iteration: {i+1}")
             break
 
         sequence_pre = deepcopy(sequence_new)
@@ -132,21 +133,29 @@ st = time()
 hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
 ft = time(); print(f"{ft-st:.4f}")
 
-hist.harmonic_unions[1].notes[1].tokens[0].prob.note_position.visualize()
-hist.harmonic_unions[1].notes[1].tokens[1].prob.velocity.visualize()
-hist.harmonic_unions[1].notes[1].tokens[2].prob.pitch.visualize()
-hist.harmonic_unions[1].notes[1].tokens[3].prob.note_duration.visualize()
-
 union = hist.harmonic_unions[0]
+union.notes[0].plot()
 union.chord.chroma
 union.chord.tonal_centroid
 
+hist.harmonic_unions[0].notes[1].plot()
+
+fig = plt.figure()
 
 union = hist.bar_unions[0]
 union.onsets()
 
 
 import matplotlib.pyplot as plt
+
+fig = plt.figure()
+fig_1 = plt.figure()
+ax_1 = fig_1.add_subplot()
+ax_1.plot([0,1,2],[0,1,2])
+plt.show(fig_1)
+plt.close()
+fig.add_subfigure(fig_1)
+
 diatonic_qualities = np.array([0,3,3,0,0,3,6])
 scales = NUM_CHORD_QUALITY * np.array([0,2,4,5,7,9,11])
 diatonic_chords_ = diatonic_qualities + scales
