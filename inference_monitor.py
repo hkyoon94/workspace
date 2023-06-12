@@ -1,19 +1,12 @@
 import torch
-import pypianoroll
 import pandas as pd
 import numpy as np
-from miditoolkit import MidiFile
 from ast import literal_eval
 from copy import deepcopy
 from importlib import reload
 from time import time
 
-from dioai.preprocessor.utils.container import (
-    WordSequence, 
-    MetaInfo, 
-    ChordInfo, 
-    GuidelineInfo
-)
+from dioai.preprocessor.utils.container import MetaInfo, GuidelineInfo, ChordInfo
 from dioai.preprocessor.offset import SpecialToken
 from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
 
@@ -124,7 +117,7 @@ reload(tokens)
 reload(unions)
 reload(sm)
 
-from dioai.monitor.sequence_monitor import SequenceMonitor
+from dioai.monitor.sequence_monitor import SequenceMonitor, token_parser
 
 hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
 
@@ -133,11 +126,9 @@ hist.meta_info
 
 hist.harmonic_unions[0].notes[0].plot()
 
-
-hist.harmonic_unions[0].visualize()
+hist.harmonic_unions[0]
+hist.harmonic_unions[0].plot()
 hist.harmonic_unions[0].notes[1].plot()
-
-fig = plt.figure()
 
 union = hist.bar_unions[0]
 union.onsets()
