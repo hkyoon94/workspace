@@ -4,9 +4,7 @@ ComMU/
 test_pkg/
 
 ############################### DATASETS #################################
-_datasets/
-_model_checkpoints/
-_outputs/
+_data
 
 .idea/
 # Byte-compiled / optimized / DLL files
