@@ -6,18 +6,18 @@ from copy import deepcopy
 from importlib import reload
 from time import time
 
-from dioai.preprocessor.utils.container import MetaInfo, GuidelineInfo, ChordInfo
-from dioai.preprocessor.offset import SpecialToken
-from dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
+from dio_ai.dioai.preprocessor.utils.container import MetaInfo, GuidelineInfo, ChordInfo
+from dio_ai.dioai.preprocessor.offset import SpecialToken
+from dio_ai.dioai.preprocessor.encoder.note_sequence.encoder import NoteSequenceEncoder
 
-from dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
-from dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
-from dioai.transformer_xl.midi_generator.inferrer import InferenceTask
-from dioai.transformer_xl.midi_generator.inference.context import Context
+from dio_ai.dioai.transformer_xl.midi_generator.model_initializer import ModelInitializeTask
+from dio_ai.dioai.transformer_xl.midi_generator.generate_pipeline import PreprocessTask
+from dio_ai.dioai.transformer_xl.midi_generator.inferrer import InferenceTask
+from dio_ai.dioai.transformer_xl.midi_generator.inference.context import Context
 
 
 WORKING_PATH = "/home/honggyu/workspace"
-SAMPLE_INFO_PATH = WORKING_PATH + "/_datasets/raw_data/2023-06-07/sample_info.csv"
+SAMPLE_INFO_PATH = WORKING_PATH + "/_data/raw_data/2023-06-07/sample_info.csv"
 GUDELINE_KEYS = (
     "figure_a", 
     "pitch_a", 
@@ -35,7 +35,8 @@ df["audio_key"] = df["audio_key"] + df["chord_type"]
 
 
 # building metadata for generating
-sample_info = df.iloc[2000].to_dict()
+sample_info = df.iloc[1500].to_dict()
+sample_info.update({'track_category': 'main_melody'})
 
 meta_info = MetaInfo(**sample_info)
 guideline_info = GuidelineInfo.create(**sample_info)
@@ -50,8 +51,8 @@ chord_info = ChordInfo(
 # preparing generator
 generator_args = {}
 generator_args.update({
-    "checkpoint_dir": WORKING_PATH + "/_model_checkpoints/20230516-115949",
-    "output_dir": WORKING_PATH + "/_outputs",
+    "checkpoint_dir": WORKING_PATH + "_data/model_checkpoints/XL/checkpoint_40000.pt",
+    "output_dir": WORKING_PATH + "_data/outputs/XL",
     "num_generate": 3, 
     "top_k": 32, 
     "temperature": 0.95
@@ -89,7 +90,7 @@ with torch.no_grad():
     for i in range(generator.inference_cfg.GENERATION.generation_length):
         contexts.append(context)
 
-        sequence_new, memory, context, prob = generator.process(deepcopy(sequence_pre), memory, context)
+        sequence_new, memory, context, logit, prob = generator.process(deepcopy(sequence_pre), memory, context)
         probs.append(deepcopy(prob))
 
         if len(sequence_pre) + 1 != len(sequence_new):
@@ -108,36 +109,48 @@ with torch.no_grad():
 
 # MONITORING
 
-import dioai.monitor.sequence_monitor as sm
-import dioai.monitor.unions as unions
-import dioai.monitor.tokens as tokens
-import dioai.monitor.logitprobs as logitprobs
+import dio_ai.dioai.sequence_analyzer.exceptions as exceptions
+import dio_ai.dioai.sequence_analyzer.logitprobs as logitprobs
+import dio_ai.dioai.sequence_analyzer.token as token
+import dio_ai.dioai.sequence_analyzer.unions as unions
+import dio_ai.dioai.sequence_analyzer.sequence_parser as parser
+reload(exceptions)
 reload(logitprobs)
-reload(tokens)
+reload(token)
 reload(unions)
-reload(sm)
+reload(parser)
 
-from dioai.monitor.sequence_monitor import SequenceMonitor, token_parser
+from dio_ai.dioai.sequence_analyzer.sequence_parser import ParsedSequence, Token
 
-hist = SequenceMonitor(meta_info, chord_info, sequence_final, contexts, probs)
+seq = ParsedSequence(
+    meta_info=meta_info, 
+    chord_info=chord_info, 
+    sequence=sequence_final, 
+    contexts=contexts, 
+    probs=probs,
+)
 
-hist.play_sequence()
-hist.meta_info
+seq.play_sequence()
+seq.meta_info
 
-hist.harmonic_unions[0].notes[0].plot()
+seq.parsed_items
+seq.harmonic_unions[0]
+seq.harmonic_unions[0].plot()
+seq.harmonic_unions[0].notes[0].plot()
 
-hist.harmonic_unions[0]
-hist.harmonic_unions[0].plot()
-hist.harmonic_unions[0].notes[1].plot()
+seq.harmonic_unions[0]
+seq.harmonic_unions[0].plot()
+seq.harmonic_unions[0].notes[1].plot()
 
-union = hist.bar_unions[0]
+union = seq.bar_unions[0]
 union.onsets()
 
 
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-from dioai.monitor.tokens import compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance
-from dioai.monitor.tokens import NUM_CHORD_QUALITY
+from dio_ai.dioai.sequence_analyzer.items import (
+    compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance, NUM_CHORD_QUALITY
+)
 
 fig = plt.figure()
 fig_1 = plt.figure()

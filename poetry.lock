@@ -5718,6 +5718,34 @@ files = [
 ]
 
 [[package]]
+name = "xgboost"
+version = "1.7.5"
+description = "XGBoost Python Package"
+category = "main"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "xgboost-1.7.5-py3-none-macosx_10_15_x86_64.macosx_11_0_x86_64.macosx_12_0_x86_64.whl", hash = "sha256:ca9e8455343cc3f1fddc825209ad00623bc82de0364097b31d649bca6a5f8fb4"},
+    {file = "xgboost-1.7.5-py3-none-macosx_12_0_arm64.whl", hash = "sha256:9eed5629c9008c36d65db6869defac31de635f766f215fc4b09b6a389c637f27"},
+    {file = "xgboost-1.7.5-py3-none-manylinux2014_aarch64.whl", hash = "sha256:af3227dbd839a8e2a215844a6276eae027d5f83a9cb501148dfcdb047a195411"},
+    {file = "xgboost-1.7.5-py3-none-manylinux2014_x86_64.whl", hash = "sha256:1d1dda6b84ea50a2ea1ed18390e93e275d57dc4cffd682014dc30ae5a116c92b"},
+    {file = "xgboost-1.7.5-py3-none-win_amd64.whl", hash = "sha256:ac17664ff24ea1c160a0d50aff521b654f0911f4684a88bbb46a074c46c9e3f1"},
+    {file = "xgboost-1.7.5.tar.gz", hash = "sha256:63474265a0194f27889c6fb54e5939ad21bcd5fcfaca7b6a89e143be42ed7ad1"},
+]
+
+[package.dependencies]
+numpy = "*"
+scipy = "*"
+
+[package.extras]
+dask = ["dask", "distributed", "pandas"]
+datatable = ["datatable"]
+pandas = ["pandas"]
+plotting = ["graphviz", "matplotlib"]
+pyspark = ["cloudpickle", "pyspark", "scikit-learn"]
+scikit-learn = ["scikit-learn"]
+
+[[package]]
 name = "xyzservices"
 version = "2023.5.0"
 description = "Source of XYZ tiles providers"
@@ -5870,4 +5898,4 @@ testing = ["big-O", "flake8 (<5)", "jaraco.functools", "jaraco.itertools", "more
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.11"
-content-hash = "bcdea3d4c886c13a23a04134e3796374cbee2a091200f51861cc8be6815a49b7"
+content-hash = "30e230260fbd9b6fb669dad2ee8264d5de5e7e7351a76fda695e64dc79b0e0c0"
