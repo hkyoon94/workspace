@@ -16,8 +16,8 @@ from dio_ai.dioai.transformer_xl.midi_generator.inferrer import InferenceTask
 from dio_ai.dioai.transformer_xl.midi_generator.inference.context import Context
 
 
-WORKING_PATH = "/home/honggyu/workspace"
-SAMPLE_INFO_PATH = WORKING_PATH + "/_data/raw_data/2023-06-07/sample_info.csv"
+WORKING_PATH = "/home/honggyu/workspace/dio_ai"
+SAMPLE_INFO_PATH = WORKING_PATH + "/data/raw_data/2023-06-07/sample_info.csv"
 GUDELINE_KEYS = (
     "figure_a", 
     "pitch_a", 
@@ -35,8 +35,9 @@ df["audio_key"] = df["audio_key"] + df["chord_type"]
 
 
 # building metadata for generating
-sample_info = df.iloc[1500].to_dict()
-sample_info.update({'track_category': 'main_melody'})
+sample_info = df.iloc[27000].to_dict()
+# sample_info.update({'track_category': ''})
+sample_info
 
 meta_info = MetaInfo(**sample_info)
 guideline_info = GuidelineInfo.create(**sample_info)
@@ -51,8 +52,8 @@ chord_info = ChordInfo(
 # preparing generator
 generator_args = {}
 generator_args.update({
-    "checkpoint_dir": WORKING_PATH + "_data/model_checkpoints/XL/checkpoint_40000.pt",
-    "output_dir": WORKING_PATH + "_data/outputs/XL",
+    "checkpoint_dir": WORKING_PATH + "data/XL/model_ckpt",
+    "output_dir": WORKING_PATH + "data/XL/outputs",
     "num_generate": 3, 
     "top_k": 32, 
     "temperature": 0.95
@@ -78,32 +79,34 @@ generator(model=model,
           input_data=preprocessor.input_data,
           inference_cfg=model_initializer.inference_cfg)
 
+# sequences = generator.execute(encoded_input=encoded_input)
+
 
 # GENERATING TOKENS
 with torch.no_grad():
     init_sequence, init_memory = generator.init_input_sequence(
         encoded_input.input_concatenated
     )
-    sequence_pre, memory, context = deepcopy(init_sequence), init_memory, Context()
-    probs, contexts, ignored_probs, ignored_contexts, ignored_iters = [], [], [], [], []
+    sequence_pre, memory, context = init_sequence[:], init_memory[:], Context()
+    logits, contexts, ignored_logits, ignored_contexts, ignored_iters = [], [], [], [], []
 
     for i in range(generator.inference_cfg.GENERATION.generation_length):
         contexts.append(context)
 
-        sequence_new, memory, context, logit, prob = generator.process(deepcopy(sequence_pre), memory, context)
-        probs.append(deepcopy(prob))
+        sequence_new, memory, context, logit = generator.process(sequence_pre[:], memory, context)
+        logits.append(deepcopy(logit))
 
         if len(sequence_pre) + 1 != len(sequence_new):
             print(f"WARNING: Token ignored on iteration {i+1}!!!\n\t(Context type: {context.types})")
             ignored_contexts.append(contexts.pop())
-            ignored_probs.append(probs.pop())
+            ignored_logits.append(logits.pop())
             ignored_iters.append(i)
 
         if sequence_new[-1] == SpecialToken.EOS.value.offset:
             print(f"Finished generating: {len(sequence_new) - len(init_sequence)} tokens / iteration: {i+1}")
             break
 
-        sequence_pre = deepcopy(sequence_new)
+        sequence_pre = sequence_new[:]
     sequence_final = np.array(sequence_new)
 
 
@@ -112,35 +115,40 @@ with torch.no_grad():
 import dio_ai.dioai.sequence_analyzer.exceptions as exceptions
 import dio_ai.dioai.sequence_analyzer.logitprobs as logitprobs
 import dio_ai.dioai.sequence_analyzer.token as token
+import dio_ai.dioai.sequence_analyzer.items as items
 import dio_ai.dioai.sequence_analyzer.unions as unions
-import dio_ai.dioai.sequence_analyzer.sequence_parser as parser
+import dio_ai.dioai.sequence_analyzer.sequence as sequence
 reload(exceptions)
 reload(logitprobs)
 reload(token)
+reload(items)
 reload(unions)
-reload(parser)
+reload(sequence)
 
-from dio_ai.dioai.sequence_analyzer.sequence_parser import ParsedSequence, Token
+from dio_ai.dioai.sequence_analyzer.sequence import ParsedSequence
 
 seq = ParsedSequence(
     meta_info=meta_info, 
     chord_info=chord_info, 
     sequence=sequence_final, 
     contexts=contexts, 
-    probs=probs,
+    logits=logits,
 )
+seq.get_unions()
 
-seq.play_sequence()
+seq.play()
 seq.meta_info
 
 seq.parsed_items
-seq.harmonic_unions[0]
+seq.harmonic_unions[6]
 seq.harmonic_unions[0].plot()
-seq.harmonic_unions[0].notes[0].plot()
+seq.harmonic_unions[1].notes[0].tokens[2].logit.pitch.plot()
+seq.harmonic_unions[1].notes[0].tokens[2].logit.probs.pitch.plot()
+seq.harmonic_unions[1].notes[0].tokens[0].logit.softmax().top_k().note_position.plot()
 
 seq.harmonic_unions[0]
 seq.harmonic_unions[0].plot()
-seq.harmonic_unions[0].notes[1].plot()
+seq.harmonic_unions[0].notes[1].plot_logit()
 
 union = seq.bar_unions[0]
 union.onsets()
@@ -151,14 +159,6 @@ from sklearn.manifold import TSNE
 from dio_ai.dioai.sequence_analyzer.items import (
     compute_tonal_centroid, compute_chord_chroma, compute_tonal_distance, NUM_CHORD_QUALITY
 )
-
-fig = plt.figure()
-fig_1 = plt.figure()
-ax_1 = fig_1.add_subplot()
-ax_1.plot([0,1,2],[0,1,2])
-plt.show(fig_1)
-plt.close()
-fig.add_subfigure(fig_1)
 
 diatonic_qualities = np.array([0,3,3,0,0,3,6])
 scales = NUM_CHORD_QUALITY * np.array([0,2,4,5,7,9,11])
@@ -183,4 +183,3 @@ plt.close()
 
 compute_tonal_distance(0,99) # C, B
 compute_tonal_distance(12,13)
-
